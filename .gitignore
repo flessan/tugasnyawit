@@ -1,0 +1,10 @@
+# SawitLang temporary build & run artifacts
+.sawit-build-*
+.sawit-run-*
+*.tmp
+*.bak
+
+# Compiled binaries & temporary test databases
+build/
+bin/
+tests/tmp_*

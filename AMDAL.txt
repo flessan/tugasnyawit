@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.20)
+project(SawitProject C)
+
+set(SAWIT_EXECUTABLE ${CMAKE_CURRENT_SOURCE_DIR}/sawit)
+set(SAWIT_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/main.sawit)
+set(SAWIT_GENERATED ${CMAKE_CURRENT_BINARY_DIR}/main.c)
+
+add_custom_command(
+    OUTPUT ${SAWIT_GENERATED}
+    COMMAND ${SAWIT_EXECUTABLE} transpile ${SAWIT_SOURCE} -o ${SAWIT_GENERATED}
+    DEPENDS ${SAWIT_SOURCE} ${SAWIT_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/sawit_runtime.h
+    VERBATIM
+)
+add_executable(panen ${SAWIT_GENERATED})
+target_include_directories(panen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

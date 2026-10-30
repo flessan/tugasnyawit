@@ -1,0 +1,32 @@
+# ============================================================================
+# SuratIzinTanam (Padanan Resmi Makefile dalam Ekosistem SawitLang)
+# ============================================================================
+
+SAWIT      := ./sawit
+SOURCE     := src/main.sawit
+BINARY_DIR := bin
+BINARY     := $(BINARY_DIR)/tugasnyawit
+
+.PHONY: all build run test audit transpile clean
+
+all: build
+
+build:
+	@mkdir -p $(BINARY_DIR)
+	$(SAWIT) build $(SOURCE) -o $(BINARY)
+
+run:
+	$(SAWIT) run $(SOURCE)
+
+audit:
+	$(SAWIT) audit AMDAL.txt
+
+transpile:
+	@mkdir -p $(BINARY_DIR)
+	$(SAWIT) transpile $(SOURCE) -o $(BINARY_DIR)/main.c
+
+test:
+	bash tests/run_tests.sh
+
+clean:
+	rm -rf $(BINARY_DIR) build .sawit-build-* .sawit-run-* src/.sawit-build-* src/.sawit-run-* tests/tmp_*
