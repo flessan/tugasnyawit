@@ -1,0 +1,1971 @@
+// ============================================================================
+// PROFESSIONAL PROCRASTINATION MANAGEMENT SYSTEM™ - EDISI KEBUN SAWIT v2.6
+// Ditulis 100% dalam Bahasa Pemrograman SawitLang (.sawit / .sawitpp)
+// Repository Bahasa: https://github.com/RedStoneCraftGG/SawitLang
+// ============================================================================
+// "Karena menunda pekerjaan hari ini adalah investasi kemalasan hari esok."
+// ============================================================================
+
+imporBibit <stdio.h>
+imporBibit <stdlib.h>
+imporBibit <string.h>
+imporBibit <ctype.h>
+imporBibit <time.h>
+imporBibit <sys/stat.h>
+imporBibit <errno.h>
+
+#ifdef __cplusplus
+imporBibit <string>
+#endif
+
+// --- Konstanta & Peraturan Presiden/RUU Tentang Kemalasan ---
+RUU VERSI_PPMS "2.6.0-SAWIT"
+PerPres JALUR_DB_BAWAAN "data/tasks.sawitdb"
+RUU KAPASITAS_AWAL 16
+PerPres MAKS_JUDUL 128
+RUU MAKS_DESKRIPSI 256
+PerPres MAKS_TANGGAL 32
+RUU MAKS_WAKTU 32
+PerPres MAKS_BARIS 1024
+
+// --- Level Prioritas Kemalasan ---
+RUU PRIORITAS_RENDAH 1
+PerPres PRIORITAS_SEDANG 2
+RUU PRIORITAS_TINGGI 3
+
+// --- Struktur Data Tugas (kopdes -> struct) ---
+kopdes Tugas {
+    tandan id;
+    buah judul[MAKS_JUDUL];
+    buah deskripsi[MAKS_DESKRIPSI];
+    tandan prioritas;
+    buah tenggat[MAKS_TANGGAL];
+    buah dibuatPada[MAKS_WAKTU];
+    panen selesai;
+};
+
+// --- Struktur Manajer Kebun Tugas ---
+kopdes ManajerTugas {
+    kopdes Tugas *daftar;
+    tandan jumlah;
+    tandan kapasitas;
+    tandan idBerikutnya;
+    tandan totalDanaMBG;
+    tandan totalDanaCair;
+    tandan totalPajakKemalasan;
+    rodok modeBisu;
+    buah jalurBerkas[512];
+};
+
+// --- Showcase S++ (C++ Mode) untuk Kata Kunci OOP SawitLang ---
+#ifdef __cplusplus
+wilayahKebun KementerianSawit {
+    perkebunan AuditorKebun {
+        jalanProduksi:
+            AuditorKebun(tandan jmlTugas) {
+                luasLahan = 100 + (jmlTugas * 10);
+                indeksKabut = 42.5f;
+                sloganResmi = "Hutan Habis, Tugas Pun Menumpuk";
+            }
+            tandan hitungKuotaRebahan() {
+                setor luasLahan * 3;
+            }
+            const buah* ambilSlogan() {
+                setor sloganResmi.c_str();
+            }
+        lahanPribadi:
+            tandan luasLahan;
+            pelepah sloganResmi;
+        lahanPejabat:
+            pertalite indeksKabut;
+    };
+}
+#endif
+
+// ============================================================================
+// BAGIAN 1: UTILITAS WAKTU, TANGGAL, & VALIDASI KALENDER NYATA
+// ============================================================================
+
+hutan ambilWaktuSekarang(buah *buffer, tandan ukuran) {
+    time_t sekarang = time(NULL);
+    kopdes tm *infoWaktu = localtime(&sekarang);
+    kalauPanen (infoWaktu != NULL) {
+        strftime(buffer, ukuran, "%Y-%m-%d %H:%M", infoWaktu);
+    } kalauTidak {
+        strncpy(buffer, "2026-10-30 00:00", ukuran - 1);
+        buffer[ukuran - 1] = '\0';
+    }
+}
+
+hutan ambilTanggalHariIniOffset(tandan tambahHari, buah *buffer, tandan ukuran) {
+    time_t sekarang = time(NULL);
+    sekarang = sekarang + (time_t)(tambahHari * 86400);
+    kopdes tm *infoWaktu = localtime(&sekarang);
+    kalauPanen (infoWaktu != NULL) {
+        strftime(buffer, ukuran, "%Y-%m-%d", infoWaktu);
+    } kalauTidak {
+        strncpy(buffer, "2026-10-30", ukuran - 1);
+        buffer[ukuran - 1] = '\0';
+    }
+}
+
+panen apakahTahunKabisat(tandan tahun) {
+    kalauPanen ((tahun % 4 == 0 && tahun % 100 != 0) || (tahun % 400 == 0)) {
+        setor sesuai;
+    }
+    setor hoaks;
+}
+
+tandan jumlahHariDalamBulan(tandan tahun, tandan bulan) {
+    tandan hariPerBulan[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    kalauPanen (bulan < 1 || bulan > 12) {
+        setor 0;
+    }
+    kalauPanen (bulan == 2 && apakahTahunKabisat(tahun)) {
+        setor 29;
+    }
+    setor hariPerBulan[bulan - 1];
+}
+
+// Memvalidasi apakah string berformat YYYY-MM-DD dan merupakan tanggal kalender sah
+panen validasiFormatTanggal(const buah *teks) {
+    kalauPanen (teks == NULL) {
+        setor hoaks;
+    }
+    kalauPanen (strcmp(teks, "NONE") == 0) {
+        setor sesuai;
+    }
+    kalauPanen (strlen(teks) != 10) {
+        setor hoaks;
+    }
+    kalauPanen (teks[4] != '-' || teks[7] != '-') {
+        setor hoaks;
+    }
+    muter (tandan i = 0; i < 10; i = i + 1) {
+        kalauPanen (i == 4 || i == 7) {
+            lanjutPidato;
+        }
+        kalauPanen (!isdigit((unsigned buah)teks[i])) {
+            setor hoaks;
+        }
+    }
+    tandan tahun = (teks[0] - '0') * 1000 + (teks[1] - '0') * 100 + (teks[2] - '0') * 10 + (teks[3] - '0');
+    tandan bulan = (teks[5] - '0') * 10 + (teks[6] - '0');
+    tandan hari  = (teks[8] - '0') * 10 + (teks[9] - '0');
+
+    kalauPanen (tahun < 1970 || tahun > 2099) {
+        setor hoaks;
+    }
+    kalauPanen (bulan < 1 || bulan > 12) {
+        setor hoaks;
+    }
+    tandan maksHari = jumlahHariDalamBulan(tahun, bulan);
+    kalauPanen (hari < 1 || hari > maksHari) {
+        setor hoaks;
+    }
+    setor sesuai;
+}
+
+// Membandingkan tenggat dengan tanggal hari ini:
+// < 0 : sudah lewat (OVERDUE)
+// == 0: jatuh tempo hari ini (DUE TODAY)
+// > 0 : masih di masa depan (UPCOMING)
+// 999 : tidak ada tenggat (NONE)
+tandan cekStatusTenggat(const buah *tenggat) {
+    kalauPanen (tenggat == NULL || strcmp(tenggat, "NONE") == 0 || strlen(tenggat) != 10) {
+        setor 999;
+    }
+    buah hariIni[MAKS_TANGGAL];
+    ambilTanggalHariIniOffset(0, hariIni, sizeof(hariIni));
+    tandan hasil = strcmp(tenggat, hariIni);
+    kalauPanen (hasil < 0) {
+        setor -1;
+    } kalauTidak kalauPanen (hasil == 0) {
+        setor 0;
+    }
+    setor 1;
+}
+
+// ============================================================================
+// BAGIAN 2: UTILITAS STRING, INPUT AMAN, & PARSING VALIDASI
+// ============================================================================
+
+hutan pangkasSpasi(buah *teks) {
+    kalauPanen (teks == NULL) {
+        setor;
+    }
+    tandan panjang = (tandan)strlen(teks);
+    selama (panjang > 0 && (teks[panjang - 1] == '\n' || teks[panjang - 1] == '\r' ||
+                            teks[panjang - 1] == ' '  || teks[panjang - 1] == '\t')) {
+        teks[panjang - 1] = '\0';
+        panjang = panjang - 1;
+    }
+    tandan awal = 0;
+    selama (teks[awal] != '\0' && (teks[awal] == ' ' || teks[awal] == '\t')) {
+        awal = awal + 1;
+    }
+    kalauPanen (awal > 0) {
+        memmove(teks, teks + awal, (size_t)(panjang - awal + 1));
+    }
+}
+
+panen samaTanpaKapital(const buah *a, const buah *b) {
+    kalauPanen (a == NULL || b == NULL) {
+        setor hoaks;
+    }
+    selama (*a != '\0' && *b != '\0') {
+        kalauPanen (tolower((unsigned buah)*a) != tolower((unsigned buah)*b)) {
+            setor hoaks;
+        }
+        a = a + 1;
+        b = b + 1;
+    }
+    setor (*a == '\0' && *b == '\0');
+}
+
+panen mengandungKata(const buah *teks, const buah *kataKunci) {
+    kalauPanen (teks == NULL || kataKunci == NULL) {
+        setor hoaks;
+    }
+    tandan pKata = (tandan)strlen(kataKunci);
+    kalauPanen (pKata == 0) {
+        setor sesuai;
+    }
+    tandan pTeks = (tandan)strlen(teks);
+    kalauPanen (pKata > pTeks) {
+        setor hoaks;
+    }
+    muter (tandan i = 0; i <= pTeks - pKata; i = i + 1) {
+        panen cocok = sesuai;
+        muter (tandan j = 0; j < pKata; j = j + 1) {
+            kalauPanen (tolower((unsigned buah)teks[i + j]) != tolower((unsigned buah)kataKunci[j])) {
+                cocok = hoaks;
+                pulang;
+            }
+        }
+        kalauPanen (cocok) {
+            setor sesuai;
+        }
+    }
+    setor hoaks;
+}
+
+// Membaca satu baris dari stdin secara aman dan membuang sisa karakter jika melebihi buffer
+panen bacaBaris(buah *buffer, tandan ukuran) {
+    kalauPanen (fgets(buffer, ukuran, stdin) == NULL) {
+        setor hoaks;
+    }
+    kalauPanen (strchr(buffer, '\n') == NULL) {
+        tandan kar = 0;
+        selama ((kar = getchar()) != '\n' && kar != EOF) {
+            lanjutOmonOmon;
+        }
+    }
+    pangkasSpasi(buffer);
+    setor sesuai;
+}
+
+// Mengurai bilangan bulat dengan validasi ketat (menolak huruf/sampah)
+panen uraiAngka(const buah *teks, tandan *keluaran) {
+    kalauPanen (teks == NULL || teks[0] == '\0') {
+        setor hoaks;
+    }
+    buah *ujung = NULL;
+    errno = 0;
+    long nilai = strtol(teks, &ujung, 10);
+    kalauPanen (errno != 0 || ujung == teks || *ujung != '\0') {
+        setor hoaks;
+    }
+    kalauPanen (nilai < -1000000 || nilai > 1000000) {
+        setor hoaks;
+    }
+    *keluaran = (tandan)nilai;
+    setor sesuai;
+}
+
+// Mengurai input prioritas ("1"/"2"/"3", "low"/"medium"/"high", "l"/"m"/"h", "rendah"/"sedang"/"tinggi")
+panen uraiPrioritas(const buah *teks, tandan *prioritasKeluar) {
+    kalauPanen (teks == NULL || teks[0] == '\0') {
+        setor hoaks;
+    }
+    kalauPanen (samaTanpaKapital(teks, "1") || samaTanpaKapital(teks, "low") ||
+                samaTanpaKapital(teks, "l") || samaTanpaKapital(teks, "rendah") ||
+                samaTanpaKapital(teks, "santai")) {
+        *prioritasKeluar = PRIORITAS_RENDAH;
+        setor sesuai;
+    }
+    kalauPanen (samaTanpaKapital(teks, "2") || samaTanpaKapital(teks, "medium") ||
+                samaTanpaKapital(teks, "med") || samaTanpaKapital(teks, "m") ||
+                samaTanpaKapital(teks, "sedang")) {
+        *prioritasKeluar = PRIORITAS_SEDANG;
+        setor sesuai;
+    }
+    kalauPanen (samaTanpaKapital(teks, "3") || samaTanpaKapital(teks, "high") ||
+                samaTanpaKapital(teks, "h") || samaTanpaKapital(teks, "tinggi") ||
+                samaTanpaKapital(teks, "urgent") || samaTanpaKapital(teks, "darurat")) {
+        *prioritasKeluar = PRIORITAS_TINGGI;
+        setor sesuai;
+    }
+    setor hoaks;
+}
+
+// Mengurai input tenggat waktu (mendukung YYYY-MM-DD, "today", "tomorrow", "+7", "none", "-")
+panen uraiTenggat(const buah *masukan, buah *keluaran, tandan ukuranKeluaran) {
+    kalauPanen (masukan == NULL || masukan[0] == '\0' ||
+                samaTanpaKapital(masukan, "none") || samaTanpaKapital(masukan, "-") ||
+                samaTanpaKapital(masukan, "skip") || samaTanpaKapital(masukan, "kapan-kapan")) {
+        strncpy(keluaran, "NONE", ukuranKeluaran - 1);
+        keluaran[ukuranKeluaran - 1] = '\0';
+        setor sesuai;
+    }
+    kalauPanen (samaTanpaKapital(masukan, "today") || samaTanpaKapital(masukan, "hari-ini") ||
+                samaTanpaKapital(masukan, "0")) {
+        ambilTanggalHariIniOffset(0, keluaran, ukuranKeluaran);
+        setor sesuai;
+    }
+    kalauPanen (samaTanpaKapital(masukan, "tomorrow") || samaTanpaKapital(masukan, "besok") ||
+                samaTanpaKapital(masukan, "+1")) {
+        ambilTanggalHariIniOffset(1, keluaran, ukuranKeluaran);
+        setor sesuai;
+    }
+    kalauPanen (samaTanpaKapital(masukan, "next-week") || samaTanpaKapital(masukan, "minggu-depan") ||
+                samaTanpaKapital(masukan, "+7")) {
+        ambilTanggalHariIniOffset(7, keluaran, ukuranKeluaran);
+        setor sesuai;
+    }
+    kalauPanen (validasiFormatTanggal(masukan)) {
+        strncpy(keluaran, masukan, ukuranKeluaran - 1);
+        keluaran[ukuranKeluaran - 1] = '\0';
+        setor sesuai;
+    }
+    setor hoaks;
+}
+
+const buah* labelPrioritas(tandan prioritas) {
+    rapat (prioritas) {
+        kasus PRIORITAS_RENDAH:
+            setor "LOW (Santai Kayak di Pantai)";
+        kasus PRIORITAS_SEDANG:
+            setor "MEDIUM (Mulai Panik Dikit)";
+        kasus PRIORITAS_TINGGI:
+            setor "HIGH (DARURAT KEMALASAN KRITIS!)";
+        default:
+            setor "UNKNOWN (Misteri Ilahi)";
+    }
+}
+
+const buah* lencanaPrioritasSingkat(tandan prioritas) {
+    rapat (prioritas) {
+        kasus PRIORITAS_RENDAH:
+            setor "LOW   ";
+        kasus PRIORITAS_SEDANG:
+            setor "MEDIUM";
+        kasus PRIORITAS_TINGGI:
+            setor "HIGH! ";
+        default:
+            setor "???   ";
+    }
+}
+
+// ============================================================================
+// BAGIAN 3: MANAJEMEN MEMORI TER-LACAK (beli & jual) & INISIALISASI
+// ============================================================================
+
+panen inisialisasiManajer(kopdes ManajerTugas *m, const buah *jalurDB) {
+    m->jumlah = 0;
+    m->kapasitas = KAPASITAS_AWAL;
+    m->idBerikutnya = 1;
+    m->totalDanaMBG = 0;
+    m->totalDanaCair = 0;
+    m->totalPajakKemalasan = 0;
+    m->modeBisu = hoaks;
+
+    kalauPanen (jalurDB != NULL && jalurDB[0] != '\0') {
+        strncpy(m->jalurBerkas, jalurDB, sizeof(m->jalurBerkas) - 1);
+        m->jalurBerkas[sizeof(m->jalurBerkas) - 1] = '\0';
+    } kalauTidak {
+        strncpy(m->jalurBerkas, JALUR_DB_BAWAAN, sizeof(m->jalurBerkas) - 1);
+        m->jalurBerkas[sizeof(m->jalurBerkas) - 1] = '\0';
+    }
+
+    m->daftar = (kopdes Tugas *)beli((size_t)m->kapasitas * sizeof(kopdes Tugas));
+    kalauPanen (m->daftar == NULL) {
+        demoMasyarakat("DARURAT: Gagal mengalokasikan lahan memori melalui beli()!");
+        setor hoaks;
+    }
+    setor sesuai;
+}
+
+hutan bersihkanManajer(kopdes ManajerTugas *m) {
+    kalauPanen (m->daftar != NULL) {
+        jual(m->daftar);
+        m->daftar = NULL;
+    }
+    m->jumlah = 0;
+    m->kapasitas = 0;
+}
+
+panen pastikanKapasitas(kopdes ManajerTugas *m) {
+    kalauPanen (m->jumlah < m->kapasitas) {
+        setor sesuai;
+    }
+    tandan kapasitasBaru = m->kapasitas * 2;
+    kopdes Tugas *daftarBaru = (kopdes Tugas *)beli((size_t)kapasitasBaru * sizeof(kopdes Tugas));
+    kalauPanen (daftarBaru == NULL) {
+        demoMasyarakat("Gagal memperluas lahan kebun tugas di heap (beli gagal)!");
+        setor hoaks;
+    }
+    muter (tandan i = 0; i < m->jumlah; i = i + 1) {
+        daftarBaru[i] = m->daftar[i];
+    }
+    jual(m->daftar);
+    m->daftar = daftarBaru;
+    m->kapasitas = kapasitasBaru;
+    setor sesuai;
+}
+
+// ============================================================================
+// BAGIAN 4: PERSISTENSI DATA NYATA (ATOMIC FILE SAVE & ESCAPED RECORD LOAD)
+// ============================================================================
+
+hutan pastikanFolderIndukAda(const buah *jalurBerkas) {
+    buah salinan[512];
+    strncpy(salinan, jalurBerkas, sizeof(salinan) - 1);
+    salinan[sizeof(salinan) - 1] = '\0';
+
+    buah *garisMiring = strrchr(salinan, '/');
+    kalauPanen (garisMiring != NULL && garisMiring != salinan) {
+        *garisMiring = '\0';
+        mkdir(salinan, 0755);
+    }
+}
+
+// Meng-escape karakter '|', '\n', '\r', dan '\\' agar aman disimpan satu baris
+hutan bungkusTeksSimpan(const buah *sumber, buah *tujuan, tandan ukuranTujuan) {
+    tandan idx = 0;
+    muter (tandan i = 0; sumber[i] != '\0' && idx + 2 < ukuranTujuan; i = i + 1) {
+        kalauPanen (sumber[i] == '|') {
+            tujuan[idx] = '\\';
+            tujuan[idx + 1] = 'p';
+            idx = idx + 2;
+        } kalauTidak kalauPanen (sumber[i] == '\n') {
+            tujuan[idx] = '\\';
+            tujuan[idx + 1] = 'n';
+            idx = idx + 2;
+        } kalauTidak kalauPanen (sumber[i] == '\r') {
+            tujuan[idx] = '\\';
+            tujuan[idx + 1] = 'r';
+            idx = idx + 2;
+        } kalauTidak kalauPanen (sumber[i] == '\\') {
+            tujuan[idx] = '\\';
+            tujuan[idx + 1] = '\\';
+            idx = idx + 2;
+        } kalauTidak {
+            tujuan[idx] = sumber[i];
+            idx = idx + 1;
+        }
+    }
+    tujuan[idx] = '\0';
+}
+
+hutan bukaBungkusanTeks(const buah *sumber, buah *tujuan, tandan ukuranTujuan) {
+    tandan idx = 0;
+    muter (tandan i = 0; sumber[i] != '\0' && idx + 1 < ukuranTujuan; i = i + 1) {
+        kalauPanen (sumber[i] == '\\' && sumber[i + 1] != '\0') {
+            buah kode = sumber[i + 1];
+            kalauPanen (kode == 'p') {
+                tujuan[idx] = '|';
+                idx = idx + 1;
+                i = i + 1;
+                lanjutPidato;
+            } kalauTidak kalauPanen (kode == 'n') {
+                tujuan[idx] = '\n';
+                idx = idx + 1;
+                i = i + 1;
+                lanjutPidato;
+            } kalauTidak kalauPanen (kode == 'r') {
+                tujuan[idx] = '\r';
+                idx = idx + 1;
+                i = i + 1;
+                lanjutPidato;
+            } kalauTidak kalauPanen (kode == '\\') {
+                tujuan[idx] = '\\';
+                idx = idx + 1;
+                i = i + 1;
+                lanjutPidato;
+            }
+        }
+        tujuan[idx] = sumber[i];
+        idx = idx + 1;
+    }
+    tujuan[idx] = '\0';
+}
+
+// Menyimpan seluruh tugas ke disk secara atomik (tulis ke .tmp lalu rename)
+// Tidak pernah berpura-pura berhasil jika operasi disk gagal!
+panen simpanKeBerkas(kopdes ManajerTugas *m) {
+    pastikanFolderIndukAda(m->jalurBerkas);
+
+    buah jalurSementara[540];
+    snprintf(jalurSementara, sizeof(jalurSementara), "%s.tmp", m->jalurBerkas);
+
+    FILE *berkas = fopen(jalurSementara, "w");
+    kalauPanen (berkas == NULL) {
+        demoMasyarakat("GAGAL SIMPAN: Tidak bisa membuka berkas '%s' untuk ditulis!", jalurSementara);
+        setor hoaks;
+    }
+
+    kalauPanen (fprintf(berkas, "SAWITDB_V1|%d|%d|%d|%d\n",
+                       m->idBerikutnya, m->totalDanaMBG, m->totalDanaCair, m->totalPajakKemalasan) < 0) {
+        fclose(berkas);
+        remove(jalurSementara);
+        demoMasyarakat("GAGAL SIMPAN: Gagal menulis header ke '%s'!", jalurSementara);
+        setor hoaks;
+    }
+
+    muter (tandan i = 0; i < m->jumlah; i = i + 1) {
+        buah judulAman[MAKS_JUDUL * 2];
+        buah deskripsiAman[MAKS_DESKRIPSI * 2];
+        bungkusTeksSimpan(m->daftar[i].judul, judulAman, sizeof(judulAman));
+        bungkusTeksSimpan(m->daftar[i].deskripsi, deskripsiAman, sizeof(deskripsiAman));
+
+        tandan statusAngka = m->daftar[i].selesai ? 1 : 0;
+        kalauPanen (fprintf(berkas, "TASK|%d|%d|%d|%s|%s|%s|%s\n",
+                           m->daftar[i].id,
+                           statusAngka,
+                           m->daftar[i].prioritas,
+                           m->daftar[i].tenggat,
+                           m->daftar[i].dibuatPada,
+                           judulAman,
+                           deskripsiAman) < 0) {
+            fclose(berkas);
+            remove(jalurSementara);
+            demoMasyarakat("GAGAL SIMPAN: Gagal menulis data tugas ID #%d!", m->daftar[i].id);
+            setor hoaks;
+        }
+    }
+
+    kalauPanen (fflush(berkas) != 0) {
+        fclose(berkas);
+        remove(jalurSementara);
+        demoMasyarakat("GAGAL SIMPAN: Gagal melakukan fflush ke disk!");
+        setor hoaks;
+    }
+    kalauPanen (fclose(berkas) != 0) {
+        remove(jalurSementara);
+        demoMasyarakat("GAGAL SIMPAN: Gagal menutup berkas sementara!");
+        setor hoaks;
+    }
+    kalauPanen (rename(jalurSementara, m->jalurBerkas) != 0) {
+        remove(jalurSementara);
+        demoMasyarakat("GAGAL SIMPAN: Gagal mengganti berkas database utama '%s'!", m->jalurBerkas);
+        setor hoaks;
+    }
+
+    setor sesuai;
+}
+
+// Memecah baris dengan pemisah '|' menjadi array kolom
+tandan pecahKolomPipa(buah *baris, buah **kolom, tandan maksKolom) {
+    tandan hitungan = 0;
+    buah *penunjuk = baris;
+    selama (hitungan < maksKolom) {
+        kolom[hitungan] = penunjuk;
+        hitungan = hitungan + 1;
+        buah *pipa = strchr(penunjuk, '|');
+        kalauPanen (pipa == NULL) {
+            pulang;
+        }
+        *pipa = '\0';
+        penunjuk = pipa + 1;
+    }
+    setor hitungan;
+}
+
+panen muatDariBerkas(kopdes ManajerTugas *m) {
+    FILE *berkas = fopen(m->jalurBerkas, "r");
+    kalauPanen (berkas == NULL) {
+        // Berkas belum ada (jalankan pertama kali) -> bukan error fatal
+        setor sesuai;
+    }
+
+    m->jumlah = 0;
+    buah baris[MAKS_BARIS];
+    tandan nomorBaris = 0;
+
+    selama (fgets(baris, sizeof(baris), berkas) != NULL) {
+        nomorBaris = nomorBaris + 1;
+        pangkasSpasi(baris);
+        kalauPanen (baris[0] == '\0' || baris[0] == '#') {
+            lanjutPidato;
+        }
+
+        buah *kolom[10];
+        tandan jmlKolom = pecahKolomPipa(baris, kolom, 10);
+
+        kalauPanen (jmlKolom >= 5 && strcmp(kolom[0], "SAWITDB_V1") == 0) {
+            tandan idLanjut = 1;
+            tandan mbg = 0;
+            tandan cairkan = 0;
+            tandan pjk = 0;
+            kalauPanen (uraiAngka(kolom[1], &idLanjut) && idLanjut >= 1) {
+                m->idBerikutnya = idLanjut;
+            }
+            kalauPanen (uraiAngka(kolom[2], &mbg) && mbg >= 0) {
+                m->totalDanaMBG = mbg;
+            }
+            kalauPanen (uraiAngka(kolom[3], &cairkan) && cairkan >= 0) {
+                m->totalDanaCair = cairkan;
+            }
+            kalauPanen (uraiAngka(kolom[4], &pjk) && pjk >= 0) {
+                m->totalPajakKemalasan = pjk;
+            }
+            // Sinkronkan saldo runtime SawitLang (sawit_anggaran)
+            sawit_anggaran = 0;
+            tandan saldoBersih = m->totalDanaMBG - m->totalDanaCair - m->totalPajakKemalasan;
+            kalauPanen (saldoBersih > 0) {
+                MBG(saldoBersih);
+            }
+            lanjutPidato;
+        }
+
+        kalauPanen (jmlKolom >= 8 && strcmp(kolom[0], "TASK") == 0) {
+            kalauPanen (!pastikanKapasitas(m)) {
+                fclose(berkas);
+                setor hoaks;
+            }
+            kopdes Tugas t;
+            tandan statusAngka = 0;
+            kalauPanen (!uraiAngka(kolom[1], &t.id) ||
+                        !uraiAngka(kolom[2], &statusAngka) ||
+                        !uraiAngka(kolom[3], &t.prioritas)) {
+                demoMasyarakat("Peringatan: Baris #%d korup di berkas database, dilewati.", nomorBaris);
+                lanjutPidato;
+            }
+            t.selesai = (statusAngka != 0) ? sesuai : hoaks;
+            kalauPanen (t.prioritas < PRIORITAS_RENDAH || t.prioritas > PRIORITAS_TINGGI) {
+                t.prioritas = PRIORITAS_SEDANG;
+            }
+            strncpy(t.tenggat, kolom[4], sizeof(t.tenggat) - 1);
+            t.tenggat[sizeof(t.tenggat) - 1] = '\0';
+
+            strncpy(t.dibuatPada, kolom[5], sizeof(t.dibuatPada) - 1);
+            t.dibuatPada[sizeof(t.dibuatPada) - 1] = '\0';
+
+            bukaBungkusanTeks(kolom[6], t.judul, sizeof(t.judul));
+            bukaBungkusanTeks(kolom[7], t.deskripsi, sizeof(t.deskripsi));
+
+            m->daftar[m->jumlah] = t;
+            m->jumlah = m->jumlah + 1;
+
+            kalauPanen (t.id >= m->idBerikutnya) {
+                m->idBerikutnya = t.id + 1;
+            }
+        }
+    }
+
+    fclose(berkas);
+    setor sesuai;
+}
+
+// ============================================================================
+// BAGIAN 5: KOMEDI, SARKASME, & GENERATOR ALASAN BIROKRASI (nyawit callbacks)
+// ============================================================================
+
+hutan garisTebal() {
+    buzzer("==============================================================================\n");
+}
+
+hutan garisTipis() {
+    buzzer("------------------------------------------------------------------------------\n");
+}
+
+hutan alasanSatu() {
+    buzzer("  \"Saya bukannya menunda, saya sedang menunggu gravitasi bulan yang pas.\"\n");
+}
+
+hutan alasanDua() {
+    buzzer("  \"Tugas ini sedang dalam tahap Studi Kelayakan AMDAL selama 5 tahun.\"\n");
+}
+
+hutan alasanTiga() {
+    buzzer("  \"Maaf, fokus saya terdistraksi oleh rapat pembentukan panitia rapat.\"\n");
+}
+
+hutan alasanEmpat() {
+    buzzer("  \"Kerjakan sekarang? Wah, itu melanggar hak asasi manusia untuk rebahan.\"\n");
+}
+
+hutan alasanLima() {
+    buzzer("  \"Server otak saya sedang terkena pemadaman bergilir. Coba lagi tahun depan.\"\n");
+}
+
+// Memanggil fungsi alasan lewat pointer fungsi menggunakan helper `nyawit()`
+hutan putarRodaAlasan(tandan indeks) {
+    hutan (*daftarAlasan[5])(hutan) = {
+        alasanSatu, alasanDua, alasanTiga, alasanEmpat, alasanLima
+    };
+    tandan pilih = indeks % 5;
+    kalauPanen (pilih < 0) {
+        pilih = 0;
+    }
+    buzzer("\n[GENERATOR ALASAN KEMALASAN RESMI +62]:\n");
+    nyawit(daftarAlasan[pilih]);
+}
+
+hutan tampilkanSpandukUtama() {
+    garisTebal();
+    buzzer("   Professional Procrastination Management System™ [v%s]\n", VERSI_PPMS);
+    buzzer("   Powered by SawitLang (S++) - Kementerian Penundaan Tanggung Jawab\n");
+    buzzer("   \"Turning Today's Urgent Deadlines Into Next Month's Regrets!\"\n");
+    garisTebal();
+}
+
+// ============================================================================
+// BAGIAN 6: OPERASI INTI MANAJEMEN TUGAS (CRUD, FILTER, & STATISTIK)
+// ============================================================================
+
+tandan cariIndeksTugasById(kopdes ManajerTugas *m, tandan idDicari) {
+    muter (tandan i = 0; i < m->jumlah; i = i + 1) {
+        kalauPanen (m->daftar[i].id == idDicari) {
+            setor i;
+        }
+    }
+    setor -1;
+}
+
+hutan cetakSatuTugas(const kopdes Tugas *t) {
+    const buah *statusTeks = t->selesai ? "[DONE]   " : "[PENDING]";
+    const buah *prioritasTeks = lencanaPrioritasSingkat(t->prioritas);
+
+    buah infoTenggat[64];
+    kalauPanen (strcmp(t->tenggat, "NONE") == 0) {
+        snprintf(infoTenggat, sizeof(infoTenggat), "No Deadline (Whenever)");
+    } kalauTidak {
+        tandan kodeTenggat = cekStatusTenggat(t->tenggat);
+        kalauPanen (t->selesai) {
+            snprintf(infoTenggat, sizeof(infoTenggat), "%s (Finished!)", t->tenggat);
+        } kalauTidak kalauPanen (kodeTenggat < 0) {
+            snprintf(infoTenggat, sizeof(infoTenggat), "%s [OVERDUE! PANIC!]", t->tenggat);
+        } kalauTidak kalauPanen (kodeTenggat == 0) {
+            snprintf(infoTenggat, sizeof(infoTenggat), "%s [DUE TODAY!]", t->tenggat);
+        } kalauTidak {
+            snprintf(infoTenggat, sizeof(infoTenggat), "%s [Upcoming]", t->tenggat);
+        }
+    }
+
+    buzzer("  #%-3d | %s | Priority: %s | Due: %s\n",
+           t->id, statusTeks, prioritasTeks, infoTenggat);
+    buzzer("       | Title      : %s\n", t->judul);
+    buzzer("       | Description: %s\n", t->deskripsi);
+    buzzer("       | Created At : %s\n", t->dibuatPada);
+    kalauPanen (!t->selesai && t->prioritas == PRIORITAS_TINGGI) {
+        buzzer("       | [!] URGENT! Your laziness has reached critical levels.\n");
+    }
+    garisTipis();
+}
+
+// Menampilkan daftar tugas dengan filter:
+// filterStatus: -1 = semua, 0 = hanya pending, 1 = hanya selesai
+// filterPrioritas: 0 = semua, 1 = Low, 2 = Medium, 3 = High
+// hanyaTerlambat: sesuai = hanya yang overdue/due today & belum selesai
+// kataKunci: NULL atau "" = semua, selain itu = cocokkan di judul/deskripsi
+hutan tampilkanDaftarTugas(kopdes ManajerTugas *m,
+                           tandan filterStatus,
+                           tandan filterPrioritas,
+                           panen hanyaTerlambat,
+                           const buah *kataKunci) {
+    garisTebal();
+    buzzer(" DAFTAR TANGGUNG JAWAB YANG SEDANG ANDA HINDARI\n");
+    garisTebal();
+
+    kalauPanen (m->jumlah == 0) {
+        buzzer("\n  Nothing to do. Suspicious. Are you sure you're being productive?\n");
+        buzzer("  (Kebun tugas Anda kosong melompong seperti janji manis saat kampanye.)\n\n");
+        garisTebal();
+        setor;
+    }
+
+    tandan cocok = 0;
+    tandan tertunda = 0;
+    tandan terlambat = 0;
+
+    muter (tandan i = 0; i < m->jumlah; i = i + 1) {
+        kopdes Tugas *t = &m->daftar[i];
+
+        kalauPanen (!t->selesai) {
+            tertunda = tertunda + 1;
+            kalauPanen (cekStatusTenggat(t->tenggat) < 0) {
+                terlambat = terlambat + 1;
+            }
+        }
+
+        kalauPanen (filterStatus == 0 && t->selesai) {
+            lanjutPidato;
+        }
+        kalauPanen (filterStatus == 1 && !t->selesai) {
+            lanjutPidato;
+        }
+        kalauPanen (filterPrioritas != 0 && t->prioritas != filterPrioritas) {
+            lanjutPidato;
+        }
+        kalauPanen (hanyaTerlambat) {
+            kalauPanen (t->selesai || cekStatusTenggat(t->tenggat) > 0) {
+                lanjutPidato;
+            }
+        }
+        kalauPanen (kataKunci != NULL && kataKunci[0] != '\0') {
+            kalauPanen (!mengandungKata(t->judul, kataKunci) &&
+                        !mengandungKata(t->deskripsi, kataKunci)) {
+                lanjutPidato;
+            }
+        }
+
+        cetakSatuTugas(t);
+        cocok = cocok + 1;
+    }
+
+    kalauPanen (cocok == 0) {
+        buzzer("\n  [INFO] Tidak ada tugas yang cocok dengan filter pencarian Anda.\n");
+        buzzer("         Selamat! Anda berhasil menyembunyikan masalah menggunakan filter.\n\n");
+    } kalauTidak {
+        buzzer("  Menampilkan %d dari total %d tugas di dalam kebun beban hidup.\n", cocok, m->jumlah);
+    }
+
+    kalauPanen (tertunda > 0) {
+        buzzer("  [WARNING] You have %d pending task(s). Your future self would like to file a complaint.\n", tertunda);
+    }
+    kalauPanen (terlambat > 0) {
+        demoMasyarakat("Ada %d tugas yang sudah lewat tenggat (OVERDUE)! Segera panen sebelum busuk!", terlambat);
+    }
+    garisTebal();
+}
+
+// Menambahkan tugas secara terprogram (dipakai baik oleh mode interaktif maupun CLI)
+panen tambahTugasBaru(kopdes ManajerTugas *m,
+                      const buah *judul,
+                      const buah *deskripsi,
+                      tandan prioritas,
+                      const buah *tenggat) {
+    kalauPanen (judul == NULL || judul[0] == '\0') {
+        demoMasyarakat("Judul tugas tidak boleh kosong! Masa mau menunda sesuatu yang tidak punya nama?");
+        setor hoaks;
+    }
+    kalauPanen (!pastikanKapasitas(m)) {
+        setor hoaks;
+    }
+
+    kopdes Tugas baru;
+    baru.id = m->idBerikutnya;
+
+    strncpy(baru.judul, judul, sizeof(baru.judul) - 1);
+    baru.judul[sizeof(baru.judul) - 1] = '\0';
+
+    kalauPanen (deskripsi != NULL && deskripsi[0] != '\0') {
+        strncpy(baru.deskripsi, deskripsi, sizeof(baru.deskripsi) - 1);
+        baru.deskripsi[sizeof(baru.deskripsi) - 1] = '\0';
+    } kalauTidak {
+        strncpy(baru.deskripsi,
+                "Too lazy to write a description. Future me will figure it out (spoiler: they won't).",
+                sizeof(baru.deskripsi) - 1);
+        baru.deskripsi[sizeof(baru.deskripsi) - 1] = '\0';
+    }
+
+    kalauPanen (prioritas < PRIORITAS_RENDAH || prioritas > PRIORITAS_TINGGI) {
+        prioritas = PRIORITAS_SEDANG;
+    }
+    baru.prioritas = prioritas;
+
+    kalauPanen (tenggat != NULL && validasiFormatTanggal(tenggat)) {
+        strncpy(baru.tenggat, tenggat, sizeof(baru.tenggat) - 1);
+        baru.tenggat[sizeof(baru.tenggat) - 1] = '\0';
+    } kalauTidak {
+        strncpy(baru.tenggat, "NONE", sizeof(baru.tenggat) - 1);
+        baru.tenggat[sizeof(baru.tenggat) - 1] = '\0';
+    }
+
+    ambilWaktuSekarang(baru.dibuatPada, sizeof(baru.dibuatPada));
+    baru.selesai = hoaks;
+
+    tandan suntikanMBG = baru.prioritas * 100;
+    m->daftar[m->jumlah] = baru;
+    m->jumlah = m->jumlah + 1;
+    m->idBerikutnya = m->idBerikutnya + 1;
+    m->totalDanaMBG = m->totalDanaMBG + suntikanMBG;
+
+    kalauPanen (!simpanKeBerkas(m)) {
+        // Rollback jika gagal simpan ke disk: jangan pernah klaim data tersimpan!
+        m->jumlah = m->jumlah - 1;
+        m->idBerikutnya = m->idBerikutnya - 1;
+        m->totalDanaMBG = m->totalDanaMBG - suntikanMBG;
+        demoMasyarakat("TRANSAKSI DIBATALKAN: Tugas gagal disimpan ke disk!");
+        setor hoaks;
+    }
+
+    MBG(suntikanMBG);
+
+    buzzer("\n  [+] Congratulations! You've officially created another responsibility.\n");
+    buzzer("      Task #%d (\"%s\") has been planted in the procrastination plantation.\n",
+           baru.id, baru.judul);
+    kalauPanen (baru.prioritas == PRIORITAS_TINGGI) {
+        buzzer("      [!] URGENT! Your laziness has reached critical levels.\n");
+    }
+    buzzer("      [MBG LEDGER] +%d Procrastination Points credited to your emotional debt.\n", suntikanMBG);
+    setor sesuai;
+}
+
+// Mengubah status selesai/belum selesai pada tugas
+panen ubahStatusTugas(kopdes ManajerTugas *m, tandan idTugas, panen statusBaru) {
+    tandan idx = cariIndeksTugasById(m, idTugas);
+    kalauPanen (idx < 0) {
+        demoMasyarakat("Tugas dengan ID #%d tidak ditemukan! Jangan mengarang bebas.", idTugas);
+        setor hoaks;
+    }
+
+    kopdes Tugas *t = &m->daftar[idx];
+    kalauPanen (t->selesai == statusBaru) {
+        kalauPanen (statusBaru) {
+            buzzer("\n  [?] Task #%d is ALREADY completed. Trying to farm double credit? Nice try.\n", idTugas);
+        } kalauTidak {
+            buzzer("\n  [?] Task #%d is ALREADY incomplete. You can't procrastinate harder than 100%%.\n", idTugas);
+        }
+        setor sesuai;
+    }
+
+    panen statusLama = t->selesai;
+    tandan cairLama = m->totalDanaCair;
+    tandan pajakLama = m->totalPajakKemalasan;
+
+    t->selesai = statusBaru;
+    kalauPanen (statusBaru) {
+        tandan hadiah = t->prioritas * 100;
+        tandan dicairkan = (tandan)cair(hadiah);
+        m->totalDanaCair = m->totalDanaCair + dicairkan;
+    } kalauTidak {
+        tandan denda = 50;
+        MBG(denda);
+        pajak(denda, 20);
+        m->totalPajakKemalasan = m->totalPajakKemalasan + denda;
+    }
+
+    kalauPanen (!simpanKeBerkas(m)) {
+        t->selesai = statusLama;
+        m->totalDanaCair = cairLama;
+        m->totalPajakKemalasan = pajakLama;
+        demoMasyarakat("TRANSAKSI DIBATALKAN: Perubahan status gagal disimpan ke disk!");
+        setor hoaks;
+    }
+
+    kalauPanen (statusBaru) {
+        buzzer("\n  [*] Incredible. You actually did something. Scientists are investigating.\n");
+        buzzer("      Task #%d (\"%s\") marked as COMPLETED!\n", t->id, t->judul);
+    } kalauTidak {
+        buzzer("\n  [~] Task #%d (\"%s\") marked as INCOMPLETE again!\n", t->id, t->judul);
+        buzzer("      De-productivity achieved! Your future self would like to file a complaint.\n");
+    }
+    setor sesuai;
+}
+
+// Menghapus tugas berdasarkan ID
+panen hapusTugasById(kopdes ManajerTugas *m, tandan idTugas) {
+    tandan idx = cariIndeksTugasById(m, idTugas);
+    kalauPanen (idx < 0) {
+        demoMasyarakat("Tugas dengan ID #%d tidak ditemukan! Anda mencoba menghapus hantu?", idTugas);
+        setor hoaks;
+    }
+
+    kopdes Tugas cadangan = m->daftar[idx];
+
+    muter (tandan i = idx; i < m->jumlah - 1; i = i + 1) {
+        m->daftar[i] = m->daftar[i + 1];
+    }
+    m->jumlah = m->jumlah - 1;
+
+    kalauPanen (!simpanKeBerkas(m)) {
+        // Kembalikan jika gagal disimpan ke disk
+        muter (tandan i = m->jumlah; i > idx; i = i - 1) {
+            m->daftar[i] = m->daftar[i - 1];
+        }
+        m->daftar[idx] = cadangan;
+        m->jumlah = m->jumlah + 1;
+        demoMasyarakat("TRANSAKSI DIBATALKAN: Penghapusan gagal disimpan ke disk!");
+        setor hoaks;
+    }
+
+    buzzer("\n  [-] Task eliminated. Your problems have been reduced by exactly one.\n");
+    buzzer("      (Deleted Task #%d: \"%s\" - Gone like a forest replaced by palm oil.)\n",
+           idTugas, cadangan.judul);
+    setor sesuai;
+}
+
+// ============================================================================
+// BAGIAN 7: STATISTIK & ANALITIK KEMALASAN (pertamax & pertalite)
+// ============================================================================
+
+hutan tampilkanStatistik(kopdes ManajerTugas *m) {
+    garisTebal();
+    buzzer(" LAPORAN AUDIT STATISTIK KEMALASAN & PRODUKTIVITAS NASIONAL\n");
+    garisTebal();
+
+    tandan total = m->jumlah;
+    tandan selesai = 0;
+    tandan tertunda = 0;
+
+    tandan rendahTotal = 0, rendahSelesai = 0;
+    tandan sedangTotal = 0, sedangSelesai = 0;
+    tandan tinggiTotal = 0, tinggiSelesai = 0;
+
+    tandan terlambat = 0;
+    tandan jatuhTempoHariIni = 0;
+    tandan akanDatang = 0;
+    tandan tanpaTenggat = 0;
+
+    muter (tandan i = 0; i < total; i = i + 1) {
+        kopdes Tugas *t = &m->daftar[i];
+        kalauPanen (t->selesai) {
+            selesai = selesai + 1;
+        } kalauTidak {
+            tertunda = tertunda + 1;
+            tandan statusTgl = cekStatusTenggat(t->tenggat);
+            kalauPanen (statusTgl < 0) {
+                terlambat = terlambat + 1;
+            } kalauTidak kalauPanen (statusTgl == 0) {
+                jatuhTempoHariIni = jatuhTempoHariIni + 1;
+            } kalauTidak kalauPanen (statusTgl == 1) {
+                akanDatang = akanDatang + 1;
+            } kalauTidak {
+                tanpaTenggat = tanpaTenggat + 1;
+            }
+        }
+
+        rapat (t->prioritas) {
+            kasus PRIORITAS_RENDAH:
+                rendahTotal = rendahTotal + 1;
+                kalauPanen (t->selesai) rendahSelesai = rendahSelesai + 1;
+                pulang;
+            kasus PRIORITAS_SEDANG:
+                sedangTotal = sedangTotal + 1;
+                kalauPanen (t->selesai) sedangSelesai = sedangSelesai + 1;
+                pulang;
+            kasus PRIORITAS_TINGGI:
+                tinggiTotal = tinggiTotal + 1;
+                kalauPanen (t->selesai) tinggiSelesai = tinggiSelesai + 1;
+                pulang;
+            default:
+                pulang;
+        }
+    }
+
+    pertamax persenSelesai = 0.0;
+    pertamax persenTertunda = 0.0;
+    kalauPanen (total > 0) {
+        persenSelesai = ((pertamax)selesai * 100.0) / (pertamax)total;
+        persenTertunda = ((pertamax)tertunda * 100.0) / (pertamax)total;
+    }
+
+    // Bar Progres Visual (20 slot)
+    tandan barIsi = (tandan)((persenSelesai / 100.0) * 20.0 + 0.5);
+    kalauPanen (barIsi > 20) barIsi = 20;
+    kalauPanen (barIsi < 0) barIsi = 0;
+
+    buah visualBar[24];
+    muter (tandan b = 0; b < 20; b = b + 1) {
+        visualBar[b] = (b < barIsi) ? '#' : '.';
+    }
+    visualBar[20] = '\0';
+
+    buzzer("  Total Tasks Created      : %d\n", total);
+    buzzer("  Completed Tasks          : %d (%.2f%%)\n", selesai, persenSelesai);
+    buzzer("  Pending Tasks            : %d (%.2f%%)\n", tertunda, persenTertunda);
+    buzzer("  Completion Progress Bar  : [%s] %.1f%%\n", visualBar, persenSelesai);
+    garisTipis();
+
+    buzzer("  RINCIAN BERDASARKAN PRIORITAS:\n");
+    buzzer("    - HIGH Priority        : %d total (%d done, %d pending)\n",
+           tinggiTotal, tinggiSelesai, tinggiTotal - tinggiSelesai);
+    buzzer("    - MEDIUM Priority      : %d total (%d done, %d pending)\n",
+           sedangTotal, sedangSelesai, sedangTotal - sedangSelesai);
+    buzzer("    - LOW Priority         : %d total (%d done, %d pending)\n",
+           rendahTotal, rendahSelesai, rendahTotal - rendahSelesai);
+    garisTipis();
+
+    buzzer("  RINCIAN TENGGAT WAKTU (TUGAS PENDING):\n");
+    buzzer("    - Overdue (Lewat!)     : %d\n", terlambat);
+    buzzer("    - Due Today (Hari Ini) : %d\n", jatuhTempoHariIni);
+    buzzer("    - Upcoming (Aman...?)  : %d\n", akanDatang);
+    buzzer("    - No Due Date (Abadi)  : %d\n", tanpaTenggat);
+    garisTipis();
+
+    pertalite indeksKemalasan = 100.0f - (pertalite)persenSelesai + (pertalite)(terlambat * 15);
+    kalauPanen (indeksKemalasan > 100.0f) indeksKemalasan = 100.0f;
+    kalauPanen (total == 0) indeksKemalasan = 50.0f;
+
+    buzzer("  NERACA ANGGARAN KEMALASAN SAWIT (MBG / CAIR / PAJAK):\n");
+    buzzer("    - Total Beban MBG      : %d poin\n", m->totalDanaMBG);
+    buzzer("    - Dana Produktif Cair  : %d poin\n", m->totalDanaCair);
+    buzzer("    - Pajak Penundaan      : %d poin\n", m->totalPajakKemalasan);
+    buzzer("    - Indeks Rebahan       : %.1f / 100.0\n", indeksKemalasan);
+    garisTipis();
+
+    buzzer("  DIAGNOSIS RESMI DOKTER KEBUN:\n  >> ");
+    kalauPanen (total == 0) {
+        buzzer("\"Nothing to do. Suspicious. Are you sure you're being productive?\"\n");
+    } kalauTidak kalauPanen (selesai == total) {
+        buzzer("\"100%% COMPLETE?! Impossible. Are you a robot or avoiding an even bigger task?\"\n");
+    } kalauTidak kalauPanen (persenSelesai >= 75.0) {
+        buzzer("\"Shockingly functional human being. We are revoking your Procrastinator License.\"\n");
+    } kalauTidak kalauPanen (persenSelesai >= 40.0) {
+        buzzer("\"Mediocre effort! Half productive, half staring at the ceiling thinking about snacks.\"\n");
+    } kalauTidak kalauPanen (selesai > 0) {
+        buzzer("\"Barely Awake Intern level. Your future self would like to file a complaint.\"\n");
+    } kalauTidak {
+        buzzer("\"0%% COMPLETED! Supreme Hokage of Procrastination! Scientists are baffled!\"\n");
+    }
+    garisTebal();
+}
+
+// ============================================================================
+// BAGIAN 8: DIALOG INTERAKTIF PENGGUNA (DENGAN VALIDASI KETAT)
+// ============================================================================
+
+hutan interaktifTambahTugas(kopdes ManajerTugas *m) {
+    buah judul[MAKS_JUDUL];
+    buah deskripsi[MAKS_DESKRIPSI];
+    buah inputPrioritas[64];
+    buah inputTenggat[64];
+    buah tenggatValid[MAKS_TANGGAL];
+    tandan prioritas = PRIORITAS_SEDANG;
+
+    garisTebal();
+    buzzer(" TAMBAH TANGGUNG JAWAB BARU (Ketik '0' atau 'batal' untuk kabur)\n");
+    garisTebal();
+
+    // 1. Judul Tugas (Wajib diisi)
+    selama (sesuai) {
+        buzzer("  Masukkan Judul Tugas: ");
+        kalauPanen (!bacaBaris(judul, sizeof(judul))) {
+            setor;
+        }
+        kalauPanen (samaTanpaKapital(judul, "0") || samaTanpaKapital(judul, "batal") ||
+                    samaTanpaKapital(judul, "cancel")) {
+            buzzer("  [!] Pembuatan tugas dibatalkan. Kembali ke zona nyaman.\n");
+            setor;
+        }
+        kalauPanen (judul[0] == '\0') {
+            demoMasyarakat("Judul tugas tidak boleh kosong! Ketik sesuatu yang terlihat produktif.");
+            lanjutPidato;
+        }
+        pulang;
+    }
+
+    // 2. Deskripsi Tugas (Opsional)
+    buzzer("  Masukkan Deskripsi (tekan Enter jika malas menulis detail): ");
+    kalauPanen (!bacaBaris(deskripsi, sizeof(deskripsi))) {
+        setor;
+    }
+
+    // 3. Prioritas (Validasi ketat dengan pidato-janji / do-while)
+    panen prioritasSah = hoaks;
+    pidato {
+        buzzer("  Pilih Prioritas [1=Low, 2=Medium, 3=High] (default: 2): ");
+        kalauPanen (!bacaBaris(inputPrioritas, sizeof(inputPrioritas))) {
+            setor;
+        }
+        kalauPanen (inputPrioritas[0] == '\0') {
+            prioritas = PRIORITAS_SEDANG;
+            prioritasSah = sesuai;
+        } kalauTidak kalauPanen (uraiPrioritas(inputPrioritas, &prioritas)) {
+            prioritasSah = sesuai;
+        } kalauTidak {
+            demoMasyarakat("Prioritas '%s' tidak valid! Masukkan 1 (Low), 2 (Medium), atau 3 (High).", inputPrioritas);
+        }
+    } janji (!prioritasSah);
+
+    // 4. Tenggat Waktu / Due Date (Validasi kalender nyata)
+    panen tenggatSah = hoaks;
+    pidato {
+        buzzer("  Tenggat Waktu [YYYY-MM-DD / today / tomorrow / +7 / Enter=NONE]: ");
+        kalauPanen (!bacaBaris(inputTenggat, sizeof(inputTenggat))) {
+            setor;
+        }
+        kalauPanen (uraiTenggat(inputTenggat, tenggatValid, sizeof(tenggatValid))) {
+            tenggatSah = sesuai;
+        } kalauTidak {
+            demoMasyarakat("Tanggal '%s' tidak sah! Gunakan YYYY-MM-DD yang nyata (misal 2026-11-15), 'today', 'tomorrow', atau tekan Enter.", inputTenggat);
+        }
+    } janji (!tenggatSah);
+
+    tambahTugasBaru(m, judul, deskripsi, prioritas, tenggatValid);
+}
+
+hutan interaktifEditTugas(kopdes ManajerTugas *m) {
+    kalauPanen (m->jumlah == 0) {
+        buzzer("\n  Nothing to do. Suspicious. Are you sure you're being productive?\n");
+        buzzer("  (Tidak ada tugas untuk diedit!)\n");
+        setor;
+    }
+
+    buah masukanId[64];
+    tandan idTugas = 0;
+    buzzer("\n  Masukkan ID Tugas yang ingin diedit (atau 0 untuk batal): ");
+    kalauPanen (!bacaBaris(masukanId, sizeof(masukanId))) {
+        setor;
+    }
+    kalauPanen (!uraiAngka(masukanId, &idTugas)) {
+        demoMasyarakat("Input '%s' bukan nomor ID yang sah! Harap masukkan angka.", masukanId);
+        setor;
+    }
+    kalauPanen (idTugas == 0) {
+        buzzer("  [!] Edit dibatalkan. Tugas tetap berantakan seperti semula.\n");
+        setor;
+    }
+
+    tandan idx = cariIndeksTugasById(m, idTugas);
+    kalauPanen (idx < 0) {
+        demoMasyarakat("Tugas dengan ID #%d tidak ditemukan di kebun!", idTugas);
+        setor;
+    }
+
+    kopdes Tugas *t = &m->daftar[idx];
+    kopdes Tugas cadangan = *t;
+
+    garisTebal();
+    buzzer(" EDIT TUGAS #%d (Tekan Enter pada kolom mana saja jika tidak ingin diubah)\n", t->id);
+    garisTipis();
+    cetakSatuTugas(t);
+
+    buah judulBaru[MAKS_JUDUL];
+    buzzer("  Judul baru [%s]: ", t->judul);
+    kalauPanen (!bacaBaris(judulBaru, sizeof(judulBaru))) {
+        setor;
+    }
+    kalauPanen (judulBaru[0] != '\0') {
+        strncpy(t->judul, judulBaru, sizeof(t->judul) - 1);
+        t->judul[sizeof(t->judul) - 1] = '\0';
+    }
+
+    buah deskripsiBaru[MAKS_DESKRIPSI];
+    buzzer("  Deskripsi baru [%s]: ", t->deskripsi);
+    kalauPanen (!bacaBaris(deskripsiBaru, sizeof(deskripsiBaru))) {
+        setor;
+    }
+    kalauPanen (deskripsiBaru[0] != '\0') {
+        strncpy(t->deskripsi, deskripsiBaru, sizeof(t->deskripsi) - 1);
+        t->deskripsi[sizeof(t->deskripsi) - 1] = '\0';
+    }
+
+    buah inputPrioritas[64];
+    selama (sesuai) {
+        buzzer("  Prioritas baru [1=Low, 2=Medium, 3=High, Enter=Tetap (%s)]: ",
+               labelPrioritas(t->prioritas));
+        kalauPanen (!bacaBaris(inputPrioritas, sizeof(inputPrioritas))) {
+            *t = cadangan;
+            setor;
+        }
+        kalauPanen (inputPrioritas[0] == '\0') {
+            pulang;
+        }
+        tandan prioBaru = t->prioritas;
+        kalauPanen (uraiPrioritas(inputPrioritas, &prioBaru)) {
+            t->prioritas = prioBaru;
+            pulang;
+        }
+        demoMasyarakat("Prioritas '%s' tidak dikenal! Ketik 1, 2, 3, atau tekan Enter.", inputPrioritas);
+    }
+
+    buah inputTenggat[64];
+    buah tenggatBaru[MAKS_TANGGAL];
+    selama (sesuai) {
+        buzzer("  Tenggat baru [YYYY-MM-DD / today / tomorrow / none / Enter=Tetap (%s)]: ",
+               t->tenggat);
+        kalauPanen (!bacaBaris(inputTenggat, sizeof(inputTenggat))) {
+            *t = cadangan;
+            setor;
+        }
+        kalauPanen (inputTenggat[0] == '\0') {
+            pulang;
+        }
+        kalauPanen (uraiTenggat(inputTenggat, tenggatBaru, sizeof(tenggatBaru))) {
+            strncpy(t->tenggat, tenggatBaru, sizeof(t->tenggat) - 1);
+            t->tenggat[sizeof(t->tenggat) - 1] = '\0';
+            pulang;
+        }
+        demoMasyarakat("Format tanggal '%s' tidak valid! Gunakan YYYY-MM-DD yang sah atau 'none'.", inputTenggat);
+    }
+
+    kalauPanen (simpanKeBerkas(m)) {
+        buzzer("\n  [✓] History has been successfully rewritten! Task #%d updated.\n", t->id);
+        kalauPanen (t->prioritas == PRIORITAS_TINGGI && !t->selesai) {
+            buzzer("      [!] URGENT! Your laziness has reached critical levels.\n");
+        }
+    } kalauTidak {
+        *t = cadangan;
+        demoMasyarakat("TRANSAKSI DIBATALKAN: Perubahan edit gagal disimpan ke disk!");
+    }
+}
+
+hutan interaktifUbahStatus(kopdes ManajerTugas *m) {
+    kalauPanen (m->jumlah == 0) {
+        buzzer("\n  Nothing to do. Suspicious. Are you sure you're being productive?\n");
+        setor;
+    }
+
+    buah masukanId[64];
+    tandan idTugas = 0;
+    buzzer("\n  Masukkan ID Tugas yang ingin diubah statusnya (atau 0 untuk batal): ");
+    kalauPanen (!bacaBaris(masukanId, sizeof(masukanId))) {
+        setor;
+    }
+    kalauPanen (!uraiAngka(masukanId, &idTugas)) {
+        demoMasyarakat("ID '%s' tidak valid! Harap masukkan angka.", masukanId);
+        setor;
+    }
+    kalauPanen (idTugas == 0) {
+        buzzer("  [!] Batal mengubah status. Kemalasan tetap terjaga.\n");
+        setor;
+    }
+
+    tandan idx = cariIndeksTugasById(m, idTugas);
+    kalauPanen (idx < 0) {
+        demoMasyarakat("Tugas dengan ID #%d tidak ditemukan!", idTugas);
+        setor;
+    }
+
+    kopdes Tugas *t = &m->daftar[idx];
+    buzzer("  Tugas terpilih: #%d \"%s\" (Status saat ini: %s)\n",
+           t->id, t->judul, t->selesai ? "COMPLETED" : "PENDING");
+    buzzer("  Pilih aksi [1=Tandai COMPLETED, 2=Tandai INCOMPLETE/PENDING, 3=Toggle Otomatis]: ");
+
+    buah pilihanTeks[32];
+    kalauPanen (!bacaBaris(pilihanTeks, sizeof(pilihanTeks))) {
+        setor;
+    }
+
+    panen targetStatus = !t->selesai;
+    kalauPanen (pilihanTeks[0] == '\0' || samaTanpaKapital(pilihanTeks, "3") ||
+                samaTanpaKapital(pilihanTeks, "toggle")) {
+        targetStatus = !t->selesai;
+    } kalauTidak kalauPanen (samaTanpaKapital(pilihanTeks, "1") || samaTanpaKapital(pilihanTeks, "done") ||
+                             samaTanpaKapital(pilihanTeks, "complete")) {
+        targetStatus = sesuai;
+    } kalauTidak kalauPanen (samaTanpaKapital(pilihanTeks, "2") || samaTanpaKapital(pilihanTeks, "pending") ||
+                             samaTanpaKapital(pilihanTeks, "incomplete")) {
+        targetStatus = hoaks;
+    } kalauTidak {
+        demoMasyarakat("Pilihan '%s' tidak dimengerti. Harap pilih 1, 2, atau 3.", pilihanTeks);
+        setor;
+    }
+
+    ubahStatusTugas(m, idTugas, targetStatus);
+}
+
+hutan interaktifHapusTugas(kopdes ManajerTugas *m) {
+    kalauPanen (m->jumlah == 0) {
+        buzzer("\n  Nothing to do. Suspicious. Are you sure you're being productive?\n");
+        setor;
+    }
+
+    buzzer("\n  MODE PENGHAPUSAN TANGGUNG JAWAB:\n");
+    buzzer("    1. Hapus satu tugas berdasarkan ID\n");
+    buzzer("    2. Sapu bersih semua tugas yang sudah COMPLETED\n");
+    buzzer("    0. Batal (Kembali ke menu)\n");
+    buzzer("  Pilihan Anda: ");
+
+    buah subPilihan[32];
+    kalauPanen (!bacaBaris(subPilihan, sizeof(subPilihan))) {
+        setor;
+    }
+
+    kalauPanen (samaTanpaKapital(subPilihan, "0") || subPilihan[0] == '\0') {
+        buzzer("  [!] Penghapusan dibatalkan.\n");
+        setor;
+    }
+
+    kalauPanen (samaTanpaKapital(subPilihan, "2")) {
+        tandan terhapus = 0;
+        tandan tulisIdx = 0;
+        muter (tandan i = 0; i < m->jumlah; i = i + 1) {
+            kalauPanen (m->daftar[i].selesai) {
+                terhapus = terhapus + 1;
+            } kalauTidak {
+                m->daftar[tulisIdx] = m->daftar[i];
+                tulisIdx = tulisIdx + 1;
+            }
+        }
+        kalauPanen (terhapus == 0) {
+            buzzer("\n  [!] Tidak ada tugas COMPLETED untuk dibersihkan. Anda memang belum menyelesaikan apa-apa!\n");
+        } kalauTidak {
+            m->jumlah = tulisIdx;
+            kalauPanen (simpanKeBerkas(m)) {
+                buzzer("\n  [-] Task eliminated. Your problems have been reduced by %d.\n", terhapus);
+                buzzer("      (Evidence of your productivity has been cleanly shredded.)\n");
+            }
+        }
+        setor;
+    }
+
+    kalauPanen (!samaTanpaKapital(subPilihan, "1")) {
+        demoMasyarakat("Pilihan '%s' tidak sah! Pilih 1, 2, atau 0.", subPilihan);
+        setor;
+    }
+
+    buah masukanId[64];
+    tandan idTugas = 0;
+    buzzer("  Masukkan ID Tugas yang ingin dimusnahkan: ");
+    kalauPanen (!bacaBaris(masukanId, sizeof(masukanId))) {
+        setor;
+    }
+    kalauPanen (!uraiAngka(masukanId, &idTugas)) {
+        demoMasyarakat("ID '%s' bukan angka yang valid!", masukanId);
+        setor;
+    }
+
+    tandan idx = cariIndeksTugasById(m, idTugas);
+    kalauPanen (idx < 0) {
+        demoMasyarakat("Tugas dengan ID #%d tidak ditemukan!", idTugas);
+        setor;
+    }
+
+    buzzer("  Yakin ingin menghapus Tugas #%d \"%s\"? [y/n]: ",
+           m->daftar[idx].id, m->daftar[idx].judul);
+    buah konfirmasi[32];
+    kalauPanen (!bacaBaris(konfirmasi, sizeof(konfirmasi))) {
+        setor;
+    }
+    kalauPanen (samaTanpaKapital(konfirmasi, "y") || samaTanpaKapital(konfirmasi, "yes") ||
+                samaTanpaKapital(konfirmasi, "ya")) {
+        hapusTugasById(m, idTugas);
+    } kalauTidak {
+        buzzer("  [!] Penghapusan dibatalkan. Masalah Anda tetap utuh.\n");
+    }
+}
+
+hutan interaktifFilterTugas(kopdes ManajerTugas *m) {
+    kalauPanen (m->jumlah == 0) {
+        tampilkanDaftarTugas(m, -1, 0, hoaks, NULL);
+        setor;
+    }
+
+    garisTebal();
+    buzzer(" FILTER & PENCARIAN TUGAS (Pilih cara memilah beban hidup)\n");
+    garisTipis();
+    buzzer("  1. Hanya Tugas PENDING (Belum Selesai)\n");
+    buzzer("  2. Hanya Tugas COMPLETED (Sudah Selesai)\n");
+    buzzer("  3. Filter Berdasarkan Prioritas (Low / Medium / High)\n");
+    buzzer("  4. Filter Kombinasi (Status + Prioritas)\n");
+    buzzer("  5. Hanya Tugas OVERDUE / JATUH TEMPO HARI INI\n");
+    buzzer("  6. Cari Berdasarkan Kata Kunci (Judul / Deskripsi)\n");
+    buzzer("  0. Kembali ke Menu Utama\n");
+    garisTipis();
+    buzzer("  Pilihan Filter [0-6]: ");
+
+    buah inputMenu[32];
+    kalauPanen (!bacaBaris(inputMenu, sizeof(inputMenu))) {
+        setor;
+    }
+    tandan opsi = -1;
+    kalauPanen (!uraiAngka(inputMenu, &opsi)) {
+        demoMasyarakat("Pilihan filter '%s' tidak valid!", inputMenu);
+        setor;
+    }
+
+    rapat (opsi) {
+        kasus 0:
+            setor;
+        kasus 1:
+            tampilkanDaftarTugas(m, 0, 0, hoaks, NULL);
+            pulang;
+        kasus 2:
+            tampilkanDaftarTugas(m, 1, 0, hoaks, NULL);
+            pulang;
+        kasus 3: {
+            buah inPrio[32];
+            tandan prio = 0;
+            buzzer("  Masukkan Prioritas yang dicari [1=Low, 2=Medium, 3=High]: ");
+            kalauPanen (!bacaBaris(inPrio, sizeof(inPrio))) {
+                setor;
+            }
+            kalauPanen (!uraiPrioritas(inPrio, &prio)) {
+                demoMasyarakat("Prioritas '%s' tidak valid!", inPrio);
+                setor;
+            }
+            tampilkanDaftarTugas(m, -1, prio, hoaks, NULL);
+            pulang;
+        }
+        kasus 4: {
+            buah inStatus[32];
+            buah inPrio[32];
+            tandan st = -1;
+            tandan pr = 0;
+            buzzer("  Pilih Status [1=Pending, 2=Completed]: ");
+            kalauPanen (!bacaBaris(inStatus, sizeof(inStatus))) {
+                setor;
+            }
+            kalauPanen (samaTanpaKapital(inStatus, "1") || samaTanpaKapital(inStatus, "pending")) {
+                st = 0;
+            } kalauTidak kalauPanen (samaTanpaKapital(inStatus, "2") || samaTanpaKapital(inStatus, "completed") ||
+                                     samaTanpaKapital(inStatus, "done")) {
+                st = 1;
+            } kalauTidak {
+                demoMasyarakat("Status '%s' tidak valid! Gunakan 1 atau 2.", inStatus);
+                setor;
+            }
+
+            buzzer("  Pilih Prioritas [1=Low, 2=Medium, 3=High]: ");
+            kalauPanen (!bacaBaris(inPrio, sizeof(inPrio))) {
+                setor;
+            }
+            kalauPanen (!uraiPrioritas(inPrio, &pr)) {
+                demoMasyarakat("Prioritas '%s' tidak valid!", inPrio);
+                setor;
+            }
+            tampilkanDaftarTugas(m, st, pr, hoaks, NULL);
+            pulang;
+        }
+        kasus 5:
+            tampilkanDaftarTugas(m, 0, 0, sesuai, NULL);
+            pulang;
+        kasus 6: {
+            buah kata[128];
+            buzzer("  Masukkan kata kunci pencarian: ");
+            kalauPanen (!bacaBaris(kata, sizeof(kata))) {
+                setor;
+            }
+            kalauPanen (kata[0] == '\0') {
+                demoMasyarakat("Kata kunci pencarian tidak boleh kosong!");
+                setor;
+            }
+            tampilkanDaftarTugas(m, -1, 0, hoaks, kata);
+            pulang;
+        }
+        default:
+            demoMasyarakat("Opsi filter #%d tidak ada di daftar!", opsi);
+            pulang;
+    }
+}
+
+// Fitur Spesial Parodi SawitLang: Demo bungkam/bukaSuara, nyawit, MBG/pajak, & S++ OOP
+hutan interaktifBirokrasiSawit(kopdes ManajerTugas *m) {
+    garisTebal();
+    buzzer(" LABORATORIUM BIROKRASI KEBUN SAWIT & GENERATOR ALASAN\n");
+    garisTipis();
+    buzzer("  1. Putar Roda Generator Alasan Menunda Kerjaan (nyawit callback)\n");
+    buzzer("  2. Uji Mode Penyangkalan Bisu (bungkam & bukaSuara stdout)\n");
+    buzzer("  3. Suntik Dana Hibah Kemalasan Darurat (+500 MBG, potong Pajak 11%%)\n");
+    buzzer("  4. Inspeksi Auditor Kebun Sawit (Demo S++ OOP / Dynamic Heap)\n");
+    buzzer("  0. Kembali ke Menu Utama\n");
+    garisTipis();
+    buzzer("  Pilihan Birokrasi [0-4]: ");
+
+    buah inBiro[32];
+    kalauPanen (!bacaBaris(inBiro, sizeof(inBiro))) {
+        setor;
+    }
+    tandan opsi = -1;
+    kalauPanen (!uraiAngka(inBiro, &opsi)) {
+        demoMasyarakat("Input '%s' bukan angka birokrasi yang sah!", inBiro);
+        setor;
+    }
+
+    rapat (opsi) {
+        kasus 0:
+            setor;
+        kasus 1:
+            putarRodaAlasan(m->jumlah + m->idBerikutnya);
+            pulang;
+        kasus 2:
+            buzzer("\n  [INFO] Mengaktifkan bungkam(stdout)... Mencoba mencetak tagihan kerjaan:\n");
+            m->modeBisu = sesuai;
+            bungkam(stdout);
+            buzzer("  PESAN INI DIBUNGKAM OLEH SENSOR KOMDIK DAN TIDAK AKAN MUNCUL!\n");
+            bukaSuara(stdout);
+            m->modeBisu = hoaks;
+            buzzer("  [INFO] bukaSuara(stdout) berhasil! Semua keluhan pekerjaan berhasil disensor.\n");
+            pulang;
+        kasus 3: {
+            tandan hibah = (tandan)MBG(500);
+            pajak(hibah, 11);
+            m->totalDanaMBG = m->totalDanaMBG + hibah;
+            m->totalPajakKemalasan = m->totalPajakKemalasan + (500 - hibah);
+            kalauPanen (simpanKeBerkas(m)) {
+                buzzer("\n  [MBG] Hibah 500 poin disetujui! Setelah dipotong pajak(11%%), bersih: +%d poin.\n", hibah);
+            }
+            pulang;
+        }
+        kasus 4: {
+#ifdef __cplusplus
+            KementerianSawit::AuditorKebun *auditor = bakarHutan KementerianSawit::AuditorKebun(m->jumlah);
+            buzzer("\n  [AUDITOR S++] Slogan Resmi : \"%s\"\n", auditor->ambilSlogan());
+            buzzer("  [AUDITOR S++] Kuota Rebahan: %d menit/hari\n", auditor->hitungKuotaRebahan());
+            gusur auditor;
+#else
+            tandan *kuotaHeap = (tandan *)beli(sizeof(tandan));
+            kalauPanen (kuotaHeap != NULL) {
+                *kuotaHeap = (100 + m->jumlah * 10) * 3;
+                buzzer("\n  [AUDITOR SAWIT] Kuota Rebahan Resmi: %d menit/hari (dialokasikan via beli/jual)\n", *kuotaHeap);
+                jual(kuotaHeap);
+            }
+#endif
+            pulang;
+        }
+        default:
+            demoMasyarakat("Pasal #%d tidak ditemukan dalam Undang-Undang Kemalasan!", opsi);
+            pulang;
+    }
+}
+
+// ============================================================================
+// BAGIAN 9: MODE SUBCOMMAND CLI & LOOP MENU INTERAKTIF UTAMA
+// ============================================================================
+
+hutan cetakBantuanCLI(const buah *namaProg) {
+    tampilkanSpandukUtama();
+    buzzer("PENGGUNAAN:\n");
+    buzzer("  %s                          Jalankan menu interaktif penuh\n", namaProg);
+    buzzer("  %s [--db <berkas>] <perintah> [argumen...]\n\n", namaProg);
+    buzzer("DAFTAR PERINTAH CLI LANGSUNG:\n");
+    buzzer("  add <judul> [deskripsi] [prioritas:low|medium|high] [tenggat:YYYY-MM-DD|NONE]\n");
+    buzzer("  list                        Tampilkan seluruh tugas\n");
+    buzzer("  complete <id>               Tandai tugas #<id> sebagai COMPLETED\n");
+    buzzer("  uncomplete <id>             Tandai tugas #<id> kembali menjadi PENDING\n");
+    buzzer("  edit <id> <judul> <deskripsi> <prioritas> <tenggat>\n");
+    buzzer("  delete <id>                 Hapus tugas #<id>\n");
+    buzzer("  filter-status <pending|completed>\n");
+    buzzer("  filter-priority <low|medium|high>\n");
+    buzzer("  search <kata_kunci>         Cari tugas berdasarkan kata kunci\n");
+    buzzer("  stats                       Tampilkan statistik lengkap & bar progres\n");
+    buzzer("  excuse                      Cetak alasan ilmiah untuk menunda pekerjaan\n");
+    buzzer("  help                        Tampilkan panduan bantuan ini\n");
+    garisTebal();
+}
+
+tandan jalankanModeCLI(kopdes ManajerTugas *m, tandan jmlArg, buah **daftarArg) {
+    const buah *perintah = daftarArg[0];
+
+    kalauPanen (samaTanpaKapital(perintah, "help") || samaTanpaKapital(perintah, "--help") ||
+                samaTanpaKapital(perintah, "-h")) {
+        cetakBantuanCLI("tugasnyawit");
+        setor 0;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "list") || samaTanpaKapital(perintah, "ls")) {
+        tampilkanDaftarTugas(m, -1, 0, hoaks, NULL);
+        setor 0;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "stats") || samaTanpaKapital(perintah, "stat")) {
+        tampilkanStatistik(m);
+        setor 0;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "excuse") || samaTanpaKapital(perintah, "alasan")) {
+        putarRodaAlasan(m->jumlah + m->idBerikutnya);
+        setor 0;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "add") || samaTanpaKapital(perintah, "tambah")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Perintah 'add' butuh minimal <judul>! Contoh: add \"Beli Kopi\" \"Deskripsi\" high 2026-11-01");
+            setor 1;
+        }
+        const buah *judul = daftarArg[1];
+        const buah *deskripsi = (jmlArg >= 3) ? daftarArg[2] : "";
+        tandan prio = PRIORITAS_SEDANG;
+        kalauPanen (jmlArg >= 4) {
+            kalauPanen (!uraiPrioritas(daftarArg[3], &prio)) {
+                demoMasyarakat("Prioritas '%s' tidak sah! Gunakan low, medium, atau high.", daftarArg[3]);
+                setor 1;
+            }
+        }
+        buah tenggatValid[MAKS_TANGGAL];
+        strncpy(tenggatValid, "NONE", sizeof(tenggatValid) - 1);
+        tenggatValid[sizeof(tenggatValid) - 1] = '\0';
+        kalauPanen (jmlArg >= 5) {
+            kalauPanen (!uraiTenggat(daftarArg[4], tenggatValid, sizeof(tenggatValid))) {
+                demoMasyarakat("Tanggal tenggat '%s' tidak sah! Gunakan YYYY-MM-DD, today, tomorrow, atau NONE.", daftarArg[4]);
+                setor 1;
+            }
+        }
+        setor tambahTugasBaru(m, judul, deskripsi, prio, tenggatValid) ? 0 : 1;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "complete") || samaTanpaKapital(perintah, "done")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Perintah 'complete' butuh <id>! Contoh: complete 1");
+            setor 1;
+        }
+        tandan idTugas = 0;
+        kalauPanen (!uraiAngka(daftarArg[1], &idTugas)) {
+            demoMasyarakat("ID '%s' bukan angka yang valid!", daftarArg[1]);
+            setor 1;
+        }
+        setor ubahStatusTugas(m, idTugas, sesuai) ? 0 : 1;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "uncomplete") || samaTanpaKapital(perintah, "undone") ||
+                samaTanpaKapital(perintah, "reopen")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Perintah 'uncomplete' butuh <id>! Contoh: uncomplete 1");
+            setor 1;
+        }
+        tandan idTugas = 0;
+        kalauPanen (!uraiAngka(daftarArg[1], &idTugas)) {
+            demoMasyarakat("ID '%s' bukan angka yang valid!", daftarArg[1]);
+            setor 1;
+        }
+        setor ubahStatusTugas(m, idTugas, hoaks) ? 0 : 1;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "delete") || samaTanpaKapital(perintah, "rm") ||
+                samaTanpaKapital(perintah, "hapus")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Perintah 'delete' butuh <id>! Contoh: delete 1");
+            setor 1;
+        }
+        tandan idTugas = 0;
+        kalauPanen (!uraiAngka(daftarArg[1], &idTugas)) {
+            demoMasyarakat("ID '%s' bukan angka yang valid!", daftarArg[1]);
+            setor 1;
+        }
+        setor hapusTugasById(m, idTugas) ? 0 : 1;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "edit")) {
+        kalauPanen (jmlArg < 6) {
+            demoMasyarakat("Penggunaan: edit <id> <judul> <deskripsi> <prioritas> <tenggat>");
+            setor 1;
+        }
+        tandan idTugas = 0;
+        kalauPanen (!uraiAngka(daftarArg[1], &idTugas)) {
+            demoMasyarakat("ID '%s' bukan angka yang valid!", daftarArg[1]);
+            setor 1;
+        }
+        tandan idx = cariIndeksTugasById(m, idTugas);
+        kalauPanen (idx < 0) {
+            demoMasyarakat("Tugas dengan ID #%d tidak ditemukan!", idTugas);
+            setor 1;
+        }
+        tandan prioBaru = PRIORITAS_SEDANG;
+        kalauPanen (!uraiPrioritas(daftarArg[4], &prioBaru)) {
+            demoMasyarakat("Prioritas '%s' tidak valid!", daftarArg[4]);
+            setor 1;
+        }
+        buah tenggatBaru[MAKS_TANGGAL];
+        kalauPanen (!uraiTenggat(daftarArg[5], tenggatBaru, sizeof(tenggatBaru))) {
+            demoMasyarakat("Tanggal '%s' tidak valid!", daftarArg[5]);
+            setor 1;
+        }
+        kopdes Tugas *t = &m->daftar[idx];
+        kopdes Tugas cadangan = *t;
+        kalauPanen (daftarArg[2][0] != '\0') {
+            strncpy(t->judul, daftarArg[2], sizeof(t->judul) - 1);
+            t->judul[sizeof(t->judul) - 1] = '\0';
+        }
+        strncpy(t->deskripsi, daftarArg[3], sizeof(t->deskripsi) - 1);
+        t->deskripsi[sizeof(t->deskripsi) - 1] = '\0';
+        t->prioritas = prioBaru;
+        strncpy(t->tenggat, tenggatBaru, sizeof(t->tenggat) - 1);
+        t->tenggat[sizeof(t->tenggat) - 1] = '\0';
+
+        kalauPanen (!simpanKeBerkas(m)) {
+            *t = cadangan;
+            demoMasyarakat("TRANSAKSI DIBATALKAN: Perubahan edit gagal disimpan ke disk!");
+            setor 1;
+        }
+        buzzer("  [✓] History has been successfully rewritten! Task #%d (\"%s\") updated.\n",
+               t->id, t->judul);
+        setor 0;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "filter-status")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Penggunaan: filter-status <pending|completed>");
+            setor 1;
+        }
+        kalauPanen (samaTanpaKapital(daftarArg[1], "pending") || samaTanpaKapital(daftarArg[1], "incomplete")) {
+            tampilkanDaftarTugas(m, 0, 0, hoaks, NULL);
+            setor 0;
+        }
+        kalauPanen (samaTanpaKapital(daftarArg[1], "completed") || samaTanpaKapital(daftarArg[1], "done")) {
+            tampilkanDaftarTugas(m, 1, 0, hoaks, NULL);
+            setor 0;
+        }
+        demoMasyarakat("Status '%s' tidak dikenal! Gunakan 'pending' atau 'completed'.", daftarArg[1]);
+        setor 1;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "filter-priority")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Penggunaan: filter-priority <low|medium|high>");
+            setor 1;
+        }
+        tandan prio = 0;
+        kalauPanen (!uraiPrioritas(daftarArg[1], &prio)) {
+            demoMasyarakat("Prioritas '%s' tidak dikenal! Gunakan low, medium, atau high.", daftarArg[1]);
+            setor 1;
+        }
+        tampilkanDaftarTugas(m, -1, prio, hoaks, NULL);
+        setor 0;
+    }
+
+    kalauPanen (samaTanpaKapital(perintah, "search") || samaTanpaKapital(perintah, "cari")) {
+        kalauPanen (jmlArg < 2) {
+            demoMasyarakat("Penggunaan: search <kata_kunci>");
+            setor 1;
+        }
+        tampilkanDaftarTugas(m, -1, 0, hoaks, daftarArg[1]);
+        setor 0;
+    }
+
+    demoMasyarakat("Perintah CLI '%s' tidak dikenal! Jalankan dengan 'help' untuk panduan.", perintah);
+    setor 1;
+}
+
+hutan tampilkanMenuUtama(const kopdes ManajerTugas *m) {
+    tandan selesai = 0;
+    muter (tandan i = 0; i < m->jumlah; i = i + 1) {
+        kalauPanen (m->daftar[i].selesai) {
+            selesai = selesai + 1;
+        }
+    }
+    tandan tertunda = m->jumlah - selesai;
+
+    buzzer("\n");
+    garisTebal();
+    buzzer(" MENU UTAMA PPMS™ | Total: %d | Pending: %d | Done: %d | DB: %s\n",
+           m->jumlah, tertunda, selesai, m->jalurBerkas);
+    garisTipis();
+    buzzer("  1. View All Tasks         (Hadapi kenyataan pahit daftar tugas Anda)\n");
+    buzzer("  2. Create New Task        (Tambah beban hidup & tanggung jawab baru)\n");
+    buzzer("  3. Edit Task Details      (Revisi sejarah & undur tenggat waktu)\n");
+    buzzer("  4. Complete / Incomplete  (Tandai selesai atau batalkan penyelesaian)\n");
+    buzzer("  5. Delete / Purge Tasks   (Musnahkan masalah tanpa menyelesaikannya)\n");
+    buzzer("  6. Filter & Search Tasks  (Pilah tugas berdasarkan status/prioritas/kata)\n");
+    buzzer("  7. Task Statistics        (Audit persentase kemalasan & grafik progres)\n");
+    buzzer("  8. Sawit Bureaucracy Lab  (Generator alasan nyawit, sensor bungkam, MBG)\n");
+    buzzer("  9. Clear Screen           (Bersihkan layar saat bos lewat di belakang)\n");
+    buzzer("  0. Save & Exit            (Kabur secara terhormat dan simpan ke disk)\n");
+    garisTebal();
+    buzzer("  Pilih menu [0-9]: ");
+}
+
+// ============================================================================
+// BAGIAN 10: TITIK MASUK UTAMA (panenUtama -> main)
+// ============================================================================
+
+tandan panenUtama(tandan argc, buah **argv) {
+    const buah *jalurDB = getenv("SAWIT_TASK_DB");
+    kalauPanen (jalurDB == NULL || jalurDB[0] == '\0') {
+        jalurDB = JALUR_DB_BAWAAN;
+    }
+
+    tandan indeksArg = 1;
+    kalauPanen (argc >= 3 && strcmp(argv[1], "--db") == 0) {
+        jalurDB = argv[2];
+        indeksArg = 3;
+    }
+
+    kopdes ManajerTugas manajer;
+    kalauPanen (!inisialisasiManajer(&manajer, jalurDB)) {
+        setor 1;
+    }
+
+    kalauPanen (!muatDariBerkas(&manajer)) {
+        demoMasyarakat("Gagal memuat berkas database dari '%s'!", jalurDB);
+        bersihkanManajer(&manajer);
+        setor 1;
+    }
+
+    // Jika ada argumen subcommand CLI, jalankan mode CLI non-interaktif
+    kalauPanen (indeksArg < argc) {
+        tandan kodeKeluar = jalankanModeCLI(&manajer, argc - indeksArg, &argv[indeksArg]);
+        bersihkanManajer(&manajer);
+        setor kodeKeluar;
+    }
+
+    // Mode Menu Interaktif Penuh
+    tampilkanSpandukUtama();
+    kalauPanen (manajer.jumlah == 0) {
+        buzzer("  [BOOT] Nothing to do. Suspicious. Are you sure you're being productive?\n");
+    } kalauTidak {
+        buzzer("  [BOOT] Loaded %d saved task(s) from '%s'.\n", manajer.jumlah, manajer.jalurBerkas);
+        buzzer("         Your responsibilities survived the restart. Condolences.\n");
+    }
+
+    panen sedangBerjalan = sesuai;
+    buah masukanMenu[64];
+
+    selama (sedangBerjalan) {
+        sapaanMenu:
+        tampilkanMenuUtama(&manajer);
+
+        kalauPanen (!bacaBaris(masukanMenu, sizeof(masukanMenu))) {
+            buzzer("\n  [EOF] Input stream closed. Saving tasks and fleeing responsibility...\n");
+            pulang;
+        }
+
+        kalauPanen (masukanMenu[0] == '\0') {
+            demoMasyarakat("Anda hanya menekan Enter! Bahkan untuk memilih menu pun Anda malas?");
+            relokasi sapaanMenu;
+        }
+
+        kalauPanen (samaTanpaKapital(masukanMenu, "q") || samaTanpaKapital(masukanMenu, "quit") ||
+                    samaTanpaKapital(masukanMenu, "exit") || samaTanpaKapital(masukanMenu, "keluar")) {
+            masukanMenu[0] = '0';
+            masukanMenu[1] = '\0';
+        }
+
+        tandan pilihan = -1;
+        kalauPanen (!uraiAngka(masukanMenu, &pilihan)) {
+            demoMasyarakat("Input '%s' bukan angka menu yang sah! Masukkan angka 0 sampai 9.", masukanMenu);
+            lanjutPidato;
+        }
+
+        rapat (pilihan) {
+            kasus 1:
+                tampilkanDaftarTugas(&manajer, -1, 0, hoaks, NULL);
+                pulang;
+            kasus 2:
+                interaktifTambahTugas(&manajer);
+                pulang;
+            kasus 3:
+                interaktifEditTugas(&manajer);
+                pulang;
+            kasus 4:
+                interaktifUbahStatus(&manajer);
+                pulang;
+            kasus 5:
+                interaktifHapusTugas(&manajer);
+                pulang;
+            kasus 6:
+                interaktifFilterTugas(&manajer);
+                pulang;
+            kasus 7:
+                tampilkanStatistik(&manajer);
+                pulang;
+            kasus 8:
+                interaktifBirokrasiSawit(&manajer);
+                pulang;
+            kasus 9:
+                bersihkanLayar();
+                tampilkanSpandukUtama();
+                buzzer("  [BOSS KEY] Screen cleared! Quick, pretend you're analyzing palm oil futures!\n");
+                pulang;
+            kasus 0:
+                kalauPanen (simpanKeBerkas(&manajer)) {
+                    buzzer("\n  [SAVE OK] All %d task(s) safely persisted to '%s'.\n",
+                           manajer.jumlah, manajer.jalurBerkas);
+                }
+                buzzer("  Shutting down Professional Procrastination Management System™.\n");
+                buzzer("  Remember: Why do today what you can panic about at 3 AM next Tuesday?\n");
+                sedangBerjalan = hoaks;
+                pulang;
+            default:
+                demoMasyarakat("Menu #%d tidak terdaftar! Pilih angka 0 sampai 9.", pilihan);
+                pulang;
+        }
+    }
+
+    bersihkanManajer(&manajer);
+    setor 0;
+}
